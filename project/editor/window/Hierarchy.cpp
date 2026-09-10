@@ -6,6 +6,7 @@
 #include "command/AllCommands.h"
 #include "command/EditorCommandList.h"
 #include "assetfactory/model/PrimitiveFactoryFuncs.h"
+#include "scene/SceneManager.h"
 
 #include <imgui/imgui.h>
 
@@ -66,8 +67,10 @@ namespace {
 	}
 }
 
-QFE::EDITOR::Hierarchy::Hierarchy(EntityManager* entityManager)
-	: entityManager_(entityManager), isActive_(true) {}
+QFE::EDITOR::Hierarchy::Hierarchy(QFE::SCENE::SceneManager* sceneManager)
+	: sceneManager_(sceneManager),
+	entityManager_(sceneManager != nullptr ? &sceneManager->GetCurrentSceneEntityManager() : nullptr),
+	isActive_(true) {}
 
 void QFE::EDITOR::Hierarchy::Initialize() {
 	isActive_ = true;
@@ -137,6 +140,10 @@ void QFE::EDITOR::Hierarchy::Draw(std::set<uint32_t>& selectedEntities, EditorCo
 	// ポップアップの描画処理（BeginPopupContextWindow ではなく BeginPopup を使う）
 	if (ImGui::BeginPopup("EntityContextMenu")) {
 		if (ImGui::BeginMenu("Create")) {
+			if (ImGui::MenuItem("Camera")) {
+				commandList.AddCommand(std::make_unique<CreateCameraCommand>(sceneManager_));
+			}
+
 			if (ImGui::MenuItem("Empty Object")) {
 				commandList.AddCommand(std::make_unique<CreateEntityCommand>(
 					"New Object", QFE::MATH::Vector3(0, 0, 0), entityManager_));
