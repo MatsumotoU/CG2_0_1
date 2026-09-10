@@ -2,7 +2,108 @@
 
 #include "scene/SceneManager.h"
 #include "components/AllComponent.h"
+#include "components/TransformHierarchy.h"
 #include "framework/scene/CollisionTriggerSystem.h"
+
+#include <algorithm>
+
+bool QFE::GAMESYSTEM::InputMovementSystem(
+	QFE::FRAMEWORK::WindowsQuickForgeEngineSystems& systems,
+	QFE::FRAMEWORK::WindowsEngineResources& resources, float deltaTime) {
+	(void)resources;
+
+	QFE::EntityManager& entityManager = systems.sceneManager->GetCurrentSceneEntityManager();
+	QFE::INPUT::InputInterface* inputInterface = systems.inputInterface.get();
+	if (inputInterface == nullptr || deltaTime <= 0.0f) {
+		return false;
+	}
+
+	entityManager.Each<QFE::COMPONENTS::InputMovementComponent>(
+		[&](uint32_t entityId, QFE::COMPONENTS::InputMovementComponent& movement) {
+			if (!movement.enabled || movement.amount == 0.0f) {
+				return;
+			}
+
+			float horizontalInput = 0.0f;
+			float verticalInput = 0.0f;
+			if (!movement.rightActionName.empty() && inputInterface->GetKeyPress(movement.rightActionName)) {
+				horizontalInput += 1.0f;
+			}
+			if (!movement.leftActionName.empty() && inputInterface->GetKeyPress(movement.leftActionName)) {
+				horizontalInput -= 1.0f;
+			}
+			if (!movement.forwardActionName.empty() && inputInterface->GetKeyPress(movement.forwardActionName)) {
+				verticalInput += 1.0f;
+			}
+			if (!movement.backwardActionName.empty() && inputInterface->GetKeyPress(movement.backwardActionName)) {
+				verticalInput -= 1.0f;
+			}
+			if (movement.useGamePadLeftStick) {
+				const QFE::MATH::Vector2 stickInput = inputInterface->GetGamePadLeftStickDir();
+				horizontalInput += stickInput.x;
+				verticalInput += stickInput.y;
+			}
+
+			horizontalInput = std::clamp(horizontalInput, -1.0f, 1.0f);
+			verticalInput = std::clamp(verticalInput, -1.0f, 1.0f);
+			QFE::MATH::Vector3 direction =
+				movement.horizontalAxis * horizontalInput + movement.verticalAxis * verticalInput;
+			if (direction.LengthSq() == 0.0f) {
+				return;
+			}
+			if (movement.normalizeInput && direction.LengthSq() > 1.0f) {
+				direction = direction.Normalize();
+			}
+
+			if (movement.applyMode == QFE::COMPONENTS::InputMovementForce) {
+				if (!entityManager.HasComponent<QFE::COMPONENTS::PhysicsComponent>(entityId)) {
+					return;
+				}
+				QFE::COMPONENTS::PhysicsComponent& physics =
+					entityManager.GetComponent<QFE::COMPONENTS::PhysicsComponent>(entityId);
+				if (physics.mass > 0.0f) {
+					physics.acceleration += direction * (movement.amount / physics.mass);
+				}
+				return;
+			}
+
+			if (entityManager.HasComponent<QFE::SCENE::TransformComponent>(entityId)) {
+				entityManager.GetComponent<QFE::SCENE::TransformComponent>(entityId).transform.translate +=
+					direction * movement.amount * deltaTime;
+			}
+		});
+
+	return true;
+}
+
+bool QFE::GAMESYSTEM::PhysicsComponentSystem(
+	QFE::FRAMEWORK::WindowsQuickForgeEngineSystems& systems,
+	QFE::FRAMEWORK::WindowsEngineResources& resources, float deltaTime) {
+	(void)resources;
+
+	QFE::EntityManager& entityManager = systems.sceneManager->GetCurrentSceneEntityManager();
+	if (deltaTime <= 0.0f) {
+		return false;
+	}
+
+	entityManager.Each<QFE::COMPONENTS::PhysicsComponent>(
+		[&](uint32_t entityId, QFE::COMPONENTS::PhysicsComponent& physics) {
+			if (physics.mass <= 0.0f ||
+				!entityManager.HasComponent<QFE::SCENE::TransformComponent>(entityId)) {
+				physics.acceleration = QFE::MATH::Vector3::Zero();
+				return;
+			}
+
+			physics.velocity += physics.acceleration * deltaTime;
+			const float damping = std::clamp(1.0f - physics.friction * deltaTime, 0.0f, 1.0f);
+			physics.velocity = physics.velocity * damping;
+			entityManager.GetComponent<QFE::SCENE::TransformComponent>(entityId).transform.translate +=
+				physics.velocity * deltaTime;
+			physics.acceleration = QFE::MATH::Vector3::Zero();
+		});
+
+	return true;
+}
 
 bool QFE::GAMESYSTEM::AutoScrollSystem(
 	QFE::FRAMEWORK::WindowsQuickForgeEngineSystems& systems,
@@ -93,14 +194,20 @@ bool QFE::GAMESYSTEM::ShootingPlayerSystem(
 				shootingPlayerComp.bombTimer = 0.0f;
 			}
 
-			if (inputInterface->GetKeyPress("Shot")) {
+			// 入力トリガーコンポーネントがない古いシーンだけ、従来の射撃処理を使う。
+			if (!entityManager.HasComponent<QFE::STG::InputBulletEmitterTriggerComponent>(entityId) &&
+				inputInterface->GetKeyPress("Shot")) {
 				if (shootingPlayerComp.shootTimer <= 0.0f) {
-					uint32_t bulletEntityId =
-						sceneManager->LoadEntityOnCurrentSceneFromJsonObject(resources.assetDir + shootingPlayerComp.bulletPrefabName);
+					if (entityManager.HasComponent<QFE::STG::BulletEmitterComponent>(entityId)) {
+						entityManager.GetComponent<QFE::STG::BulletEmitterComponent>(entityId).emitRequest = true;
+					} else {
+						uint32_t bulletEntityId =
+							sceneManager->LoadEntityOnCurrentSceneFromJsonObject(resources.assetDir + shootingPlayerComp.bulletPrefabName);
 
-					if (entityManager.HasComponent<QFE::SCENE::TransformComponent>(bulletEntityId)) {
-						QFE::MATH::EulerTransform& bulletTransform = entityManager.GetComponent<QFE::SCENE::TransformComponent>(bulletEntityId).transform;
-						bulletTransform.translate = playerTransform.translate + shootingPlayerComp.bulletSpawnOffset;
+						if (entityManager.HasComponent<QFE::SCENE::TransformComponent>(bulletEntityId)) {
+							QFE::MATH::EulerTransform& bulletTransform = entityManager.GetComponent<QFE::SCENE::TransformComponent>(bulletEntityId).transform;
+							bulletTransform.translate = playerTransform.translate + shootingPlayerComp.bulletSpawnOffset;
+						}
 					}
 					shootingPlayerComp.shootTimer = shootingPlayerComp.shootInterval;
 				}
@@ -377,4 +484,212 @@ bool QFE::GAMESYSTEM::MoveLimitSystem(
 		transform.translate.z = std::clamp(transform.translate.z, minLimit.z, maxLimit.z);
 		});
 	return false;
+}
+
+bool QFE::GAMESYSTEM::BulletEmitterSystem(
+	QFE::FRAMEWORK::WindowsQuickForgeEngineSystems& systems,
+	QFE::FRAMEWORK::WindowsEngineResources& resources, float deltaTime) {
+	(void)deltaTime;
+
+	QFE::SCENE::SceneManager* sceneManager = systems.sceneManager.get();
+	QFE::EntityManager& entityManager = sceneManager->GetCurrentSceneEntityManager();
+
+	entityManager.Each<QFE::STG::BulletEmitterComponent>([&](uint32_t entityId, QFE::STG::BulletEmitterComponent& bulletEmitterComp) {
+		if (!bulletEmitterComp.emitRequest) {
+			return;
+		}
+		bulletEmitterComp.emitRequest = false;
+
+		if (!entityManager.HasComponent<QFE::SCENE::TransformComponent>(entityId) ||
+			bulletEmitterComp.emitBulletName.empty() || bulletEmitterComp.emitCount == 0) {
+			return;
+		}
+
+		const QFE::MATH::Matrix4x4 emitterWorldMatrix =
+			QFE::SCENE::GetWorldMatrix(entityManager, entityId);
+		QFE::MATH::Vector3 worldAxisX = {
+			emitterWorldMatrix.m[0][0], emitterWorldMatrix.m[0][1], emitterWorldMatrix.m[0][2]
+		};
+		QFE::MATH::Vector3 worldAxisY = {
+			emitterWorldMatrix.m[1][0], emitterWorldMatrix.m[1][1], emitterWorldMatrix.m[1][2]
+		};
+		QFE::MATH::Vector3 worldAxisZ = {
+			emitterWorldMatrix.m[2][0], emitterWorldMatrix.m[2][1], emitterWorldMatrix.m[2][2]
+		};
+		worldAxisX = worldAxisX.Normalize();
+		worldAxisY = worldAxisY.Normalize();
+		worldAxisZ = worldAxisZ.Normalize();
+		const QFE::MATH::Vector3 emitterWorldPosition = {
+			emitterWorldMatrix.m[3][0], emitterWorldMatrix.m[3][1], emitterWorldMatrix.m[3][2]
+		};
+		// エミッターや親の拡縮率は、発射半径とオフセットへ影響させない。
+		const QFE::MATH::Vector3 sphereCenter = emitterWorldPosition +
+			worldAxisX * bulletEmitterComp.emitPos.x +
+			worldAxisY * bulletEmitterComp.emitPos.y +
+			worldAxisZ * bulletEmitterComp.emitPos.z;
+
+		QFE::MATH::Vector3 localBaseDirection = bulletEmitterComp.emitDir;
+		if (localBaseDirection.LengthSq() == 0.0f) {
+			localBaseDirection = { 0.0f, 0.0f, 1.0f };
+		}
+		QFE::MATH::Vector3 worldBaseDirection =
+			(worldAxisX * localBaseDirection.x +
+			 worldAxisY * localBaseDirection.y +
+			 worldAxisZ * localBaseDirection.z).Normalize();
+		if (worldBaseDirection.LengthSq() == 0.0f) {
+			worldBaseDirection = { 0.0f, 0.0f, 1.0f };
+		}
+
+		const QFE::MATH::Vector3 baseSpherical =
+			QFE::MATH::Vector3::CartesianToSpherical(worldBaseDirection);
+		const float radius = bulletEmitterComp.emitRadius > 0.0f
+			? bulletEmitterComp.emitRadius
+			: 0.0f;
+
+		for (uint32_t bulletIndex = 0; bulletIndex < bulletEmitterComp.emitCount; ++bulletIndex) {
+			// 球座標は x=半径、y=極角theta、z=方位角phi。
+			const QFE::MATH::Vector3 bulletSpherical = {
+				1.0f,
+				baseSpherical.y + bulletEmitterComp.bulletAngleX * static_cast<float>(bulletIndex),
+				baseSpherical.z + bulletEmitterComp.bulletAngleY * static_cast<float>(bulletIndex)
+			};
+			const QFE::MATH::Vector3 bulletDirection =
+				QFE::MATH::Vector3::SphericalToCartesian(bulletSpherical).Normalize();
+			const QFE::MATH::Vector3 bulletPosition = sphereCenter + bulletDirection * radius;
+
+			const uint32_t bulletEntityId = sceneManager->LoadEntityOnCurrentSceneFromJsonObject(
+				resources.assetDir + bulletEmitterComp.emitBulletName);
+			if (bulletEntityId == UINT32_MAX) {
+				continue;
+			}
+
+			if (entityManager.HasComponent<QFE::SCENE::TransformComponent>(bulletEntityId)) {
+				QFE::MATH::EulerTransform& bulletTransform =
+					entityManager.GetComponent<QFE::SCENE::TransformComponent>(bulletEntityId).transform;
+				bulletTransform.translate = bulletPosition;
+				bulletTransform.rotate = QFE::MATH::Vector3::LookAt(
+					bulletPosition, bulletPosition + bulletDirection);
+			}
+			if (entityManager.HasComponent<QFE::STG::BulletComponent>(bulletEntityId)) {
+				entityManager.GetComponent<QFE::STG::BulletComponent>(bulletEntityId).dir = bulletDirection;
+			}
+		}
+		});
+
+	return false;
+}
+
+bool QFE::GAMESYSTEM::BulletEmitterTriggerSystem(
+	QFE::FRAMEWORK::WindowsQuickForgeEngineSystems& systems,
+	QFE::FRAMEWORK::WindowsEngineResources& resources, float deltaTime) {
+	(void)resources;
+
+	QFE::EntityManager& entityManager =
+		systems.sceneManager->GetCurrentSceneEntityManager();
+	QFE::INPUT::InputInterface* inputInterface = systems.inputInterface.get();
+
+	entityManager.Each<QFE::STG::InputBulletEmitterTriggerComponent>(
+		[&](uint32_t entityId, QFE::STG::InputBulletEmitterTriggerComponent& triggerComp) {
+			if (!triggerComp.enabled ||
+				!entityManager.HasComponent<QFE::STG::BulletEmitterComponent>(entityId)) {
+				triggerComp.repeatTimer = 0.0f;
+				return;
+			}
+
+			auto getInput = [&](uint32_t triggerMode) {
+				bool active = false;
+				if (!triggerComp.inputActionName.empty()) {
+					switch (triggerMode) {
+					case QFE::STG::BulletEmitterInputTrigger:
+						active |= inputInterface->GetKeyTrigger(triggerComp.inputActionName);
+						break;
+					case QFE::STG::BulletEmitterInputRelease:
+						active |= inputInterface->GetKeyRelease(triggerComp.inputActionName);
+						break;
+					default:
+						active |= inputInterface->GetKeyPress(triggerComp.inputActionName);
+						break;
+					}
+				}
+				if (triggerComp.mouseButton >= 0 && triggerComp.mouseButton <= INT8_MAX) {
+					const int8_t mouseButton = static_cast<int8_t>(triggerComp.mouseButton);
+					switch (triggerMode) {
+					case QFE::STG::BulletEmitterInputTrigger:
+						active |= inputInterface->GetMouseTrigger(mouseButton);
+						break;
+					case QFE::STG::BulletEmitterInputRelease:
+						active |= inputInterface->GetMouseRelease(mouseButton);
+						break;
+					default:
+						active |= inputInterface->GetMousePress(mouseButton);
+						break;
+					}
+				}
+				if (triggerComp.gamePadButton != 0 && triggerComp.gamePadButton <= UINT16_MAX) {
+					const uint16_t gamePadButton = static_cast<uint16_t>(triggerComp.gamePadButton);
+					switch (triggerMode) {
+					case QFE::STG::BulletEmitterInputTrigger:
+						active |= inputInterface->GetGamePadTrigger(gamePadButton);
+						break;
+					case QFE::STG::BulletEmitterInputRelease:
+						active |= inputInterface->GetGamePadRelease(gamePadButton);
+						break;
+					default:
+						active |= inputInterface->GetGamePadPress(gamePadButton);
+						break;
+					}
+				}
+				return active;
+			};
+
+			const uint32_t triggerMode = triggerComp.triggerMode;
+			const bool inputActive = getInput(triggerMode);
+			bool requestEmit = false;
+			if (triggerMode == QFE::STG::BulletEmitterInputPress) {
+				if (!inputActive) {
+					triggerComp.repeatTimer = 0.0f;
+					return;
+				}
+				triggerComp.repeatTimer -= deltaTime;
+				if (triggerComp.repeatTimer <= 0.0f) {
+					requestEmit = true;
+					triggerComp.repeatTimer = triggerComp.repeatInterval > 0.0f
+						? triggerComp.repeatInterval
+						: 0.0f;
+				}
+			} else {
+				requestEmit = inputActive;
+			}
+
+			if (requestEmit) {
+				entityManager.GetComponent<QFE::STG::BulletEmitterComponent>(entityId).emitRequest = true;
+			}
+		});
+
+	entityManager.Each<QFE::STG::PeriodicBulletEmitterTriggerComponent>(
+		[&](uint32_t entityId, QFE::STG::PeriodicBulletEmitterTriggerComponent& triggerComp) {
+			if (!triggerComp.enabled ||
+				!entityManager.HasComponent<QFE::STG::BulletEmitterComponent>(entityId)) {
+				triggerComp.initialized = false;
+				triggerComp.remainingTime = 0.0f;
+				return;
+			}
+
+			if (!triggerComp.initialized) {
+				triggerComp.initialized = true;
+				triggerComp.remainingTime = triggerComp.emitOnStart
+					? 0.0f
+					: triggerComp.interval;
+			}
+
+			triggerComp.remainingTime -= deltaTime;
+			if (triggerComp.remainingTime <= 0.0f) {
+				entityManager.GetComponent<QFE::STG::BulletEmitterComponent>(entityId).emitRequest = true;
+				triggerComp.remainingTime = triggerComp.interval > 0.0f
+					? triggerComp.interval
+					: 0.0f;
+			}
+		});
+
+	return true;
 }

@@ -5,6 +5,16 @@
 #include "../resources/shaders/shaderStructs/hlslTypeToCpp.h"
 
 namespace QFE::GAMESYSTEM {
+	/// @brief 入力に応じて位置を移動するか、PhysicsComponentへ力を加える。
+	bool InputMovementSystem(
+		QFE::FRAMEWORK::WindowsQuickForgeEngineSystems& systems,
+		QFE::FRAMEWORK::WindowsEngineResources& resources, float deltaTime);
+
+	/// @brief PhysicsComponentの速度と加速度をTransformへ反映する。
+	bool PhysicsComponentSystem(
+		QFE::FRAMEWORK::WindowsQuickForgeEngineSystems& systems,
+		QFE::FRAMEWORK::WindowsEngineResources& resources, float deltaTime);
+
 	/// @brief プレイヤーの自動スクロール処理を行うシステム関数。
 	bool AutoScrollSystem(
 		QFE::FRAMEWORK::WindowsQuickForgeEngineSystems& systems,
@@ -42,6 +52,16 @@ namespace QFE::GAMESYSTEM {
 
 	/// @brief 移動制限コンポーネントの処理を行うシステム関数。
 	bool MoveLimitSystem(
+		QFE::FRAMEWORK::WindowsQuickForgeEngineSystems& systems,
+		QFE::FRAMEWORK::WindowsEngineResources& resources, float deltaTime);
+
+	/// @brief 弾丸エミッターの処理を行うシステム関数。
+	bool BulletEmitterSystem(
+		QFE::FRAMEWORK::WindowsQuickForgeEngineSystems& systems,
+		QFE::FRAMEWORK::WindowsEngineResources& resources, float deltaTime);
+
+	/// @brief 入力または一定間隔で弾丸エミッターへ発射要求を送る。
+	bool BulletEmitterTriggerSystem(
 		QFE::FRAMEWORK::WindowsQuickForgeEngineSystems& systems,
 		QFE::FRAMEWORK::WindowsEngineResources& resources, float deltaTime);
 }

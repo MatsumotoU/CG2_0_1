@@ -12,9 +12,13 @@
 #include "SphereColliderComponent.h"
 #include "AnimationComponent.h"
 #include "PhysicsComponent.h"
+#include "InputMovementComponent.h"
 #include "EventComponent.h"
 #include "CollisionTriggerComponent.h"
 // シューティング用のコンポーネント
+#include "shooting/BulletEmitterComponent.h"
+#include "shooting/InputBulletEmitterTriggerComponent.h"
+#include "shooting/PeriodicBulletEmitterTriggerComponent.h"
 #include "shooting/ShootingPlayerComponent.h"
 #include "shooting/BulletComponent.h"
 #include "shooting/HealthComponent.h"
