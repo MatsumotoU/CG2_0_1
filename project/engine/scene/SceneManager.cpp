@@ -1,8 +1,35 @@
 #include "SceneManager.h"
 
+#include "CameraComponent.h"
+#include "ObjectInfoComponent.h"
+#include "TransformComponent.h"
+
 void QFE::SCENE::SceneManager::Initialize() {
 	currentScene_.Initialize();
 	currentScenePath_.clear();
+	CreateCameraEntity();
+}
+
+uint32_t QFE::SCENE::SceneManager::CreateCameraEntity(const std::string& name) {
+	QFE::EntityManager& entityManager = currentScene_.GetEntityManager();
+	bool hasMainCamera = false;
+	entityManager.Each<QFE::SCENE::CameraComponent>(
+		[&](uint32_t, QFE::SCENE::CameraComponent& camera) {
+			hasMainCamera = hasMainCamera || camera.isMainCamera;
+		});
+
+	const uint32_t entityId = entityManager.CreateEntity();
+	QFE::SCENE::ObjectInfoComponent objectInfo;
+	objectInfo.name = name;
+	QFE::SCENE::TransformComponent transform;
+	transform.transform.translate = { 0.0f, 0.0f, -5.0f };
+	QFE::SCENE::CameraComponent camera;
+	camera.isMainCamera = !hasMainCamera;
+
+	entityManager.EmplaceComponent<QFE::SCENE::ObjectInfoComponent>(entityId, objectInfo);
+	entityManager.EmplaceComponent<QFE::SCENE::TransformComponent>(entityId, transform);
+	entityManager.EmplaceComponent<QFE::SCENE::CameraComponent>(entityId, camera);
+	return entityId;
 }
 
 void QFE::SCENE::SceneManager::EndFrame() {
