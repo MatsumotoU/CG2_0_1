@@ -10,7 +10,6 @@ project "Runtime" -- Runtime
         links{
             "EngineCore",
             "GuiFramework",
-            "GraphicFramework",
             "WindowFramework",
             "EngineAssetsFactory",
             "SceneFramework",
@@ -23,6 +22,9 @@ project "Runtime" -- Runtime
             "Input",
             "PhysicsEngine",
         }
+
+        -- グラフィック関連の内部ライブラリはGraphicFramework側で管理する。
+        QFE_UseGraphicFramework()
 
         -- 警告レベル4
         warnings "Extra"
