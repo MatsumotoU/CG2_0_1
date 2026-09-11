@@ -22,3 +22,15 @@ project "GraphicFramework"
         externalincludedirs {
             "%{wks.location}/externals/",
         }
+
+
+-- Premake 5.0.0-beta2ではusage/usesが利用できないため、
+-- GraphicFrameworkの利用に必要なリンク設定をこの機能側へ集約する。
+function QFE_UseGraphicFramework()
+        links {
+                "GraphicFramework",
+                "GraphicEngine",
+                "EngineCore",
+                "DirectXTex",
+        }
+end
